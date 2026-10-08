@@ -15,6 +15,8 @@ interface Env {
   DISCORD_ADMIN_USER_ID?: string;
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;
+  OPENAUTH_CLIENT_ID?: string;
+  ALLOWED_REDIRECT_HOSTS?: string;
 }
 
 function createIssuer(env: Env) {
@@ -22,9 +24,10 @@ function createIssuer(env: Env) {
     subjects: authSubjects,
     storage: CloudflareStorage({ namespace: env.OPENAUTH_STORAGE }),
     allow: async ({ clientID, redirectURI }) => {
-      if (clientID !== 'core-web-web') return false;
+      if (clientID !== (env.OPENAUTH_CLIENT_ID || 'core-web-web')) return false;
       const hostname = new URL(redirectURI).hostname;
-      return hostname === 'example.com' || hostname === 'www.example.com' || hostname === 'localhost' || hostname === '127.0.0.1';
+      const allowedHosts = new Set((env.ALLOWED_REDIRECT_HOSTS || 'localhost,127.0.0.1').split(',').map((value) => value.trim()).filter(Boolean));
+      return allowedHosts.has(hostname);
     },
     providers: {
       discord: DiscordProvider({

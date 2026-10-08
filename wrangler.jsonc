@@ -5,7 +5,9 @@
   "compatibility_date": "2026-08-19",
   "keep_vars": true,
   "vars": {
-    "DISCORD_ADMIN_USER_ID": "replace-with-your-user-id"
+    "DISCORD_ADMIN_USER_ID": "replace-with-your-user-id",
+    "OPENAUTH_CLIENT_ID": "core-web-web",
+    "ALLOWED_REDIRECT_HOSTS": "example.com,www.example.com,localhost,127.0.0.1"
   },
   "routes": [
     { "pattern": "auth.example.com", "custom_domain": true }

@@ -14,7 +14,7 @@ export type AuthUser = {
 };
 
 export function getOpenAuthClient() {
-  return createClient({ clientID: 'core-web-web', issuer: process.env.OPENAUTH_ISSUER_URL || 'https://auth.example.com' });
+  return createClient({ clientID: process.env.NEXT_PUBLIC_OPENAUTH_CLIENT_ID || 'core-web-web', issuer: process.env.OPENAUTH_ISSUER_URL || 'https://auth.example.com' });
 }
 
 export function getAuthCallbackUrl(requestUrl: string, next: string) {

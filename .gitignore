@@ -43,3 +43,7 @@ next-env.d.ts
 certificates
 .npm-cache/
 .codex-local/
+
+# Supabase CLI state
+/supabase/.branches/
+/supabase/.temp/

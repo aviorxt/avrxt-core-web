@@ -10,12 +10,12 @@
   "ratelimits": [
     {
       "name": "REQUEST_LIMITER",
-      "namespace_id": "2026100701",
+      "namespace_id": "replace-with-request-limit-namespace-id",
       "simple": { "limit": 120, "period": 60 }
     },
     {
       "name": "UNSUBSCRIBE_LIMITER",
-      "namespace_id": "2026100702",
+      "namespace_id": "replace-with-unsubscribe-limit-namespace-id",
       "simple": { "limit": 8, "period": 60 }
     }
   ],
