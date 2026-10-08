@@ -1,0 +1,18 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "core-web-api-gateway",
+  "main": "worker.ts",
+  "compatibility_date": "2026-08-19",
+  "keep_vars": true,
+  "ai": { "binding": "AI" },
+  "ratelimits": [
+    { "name": "MAIL_AI_LIMITER", "namespace_id": "replace-with-ratelimit-namespace-id", "simple": { "limit": 8, "period": 60 } }
+  ],
+  "vars": {
+    "SITE_ORIGIN": "https://example.com",
+    "EDGE_ORIGIN": "https://edge.example.com"
+  },
+  "routes": [
+    { "pattern": "api.example.com", "custom_domain": true }
+  ]
+}

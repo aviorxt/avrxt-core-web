@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Core Web placeholder mark</title>
+  <desc id="desc">A geometric C and W monogram intended to be replaced by the site owner.</desc>
+  <rect width="128" height="128" rx="24" fill="#080808"/>
+  <path d="M83 32H54C39.6 32 28 43.6 28 58v12c0 14.4 11.6 26 26 26h29" fill="none" stroke="#f7f7f7" stroke-width="12" stroke-linecap="square"/>
+  <path d="M48 48l14 40 14-28 14 28 14-40" fill="none" stroke="#a3a3a3" stroke-width="8" stroke-linejoin="bevel"/>
+</svg>

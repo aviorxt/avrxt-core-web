@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "core-web-openauth",
+  "main": "auth-worker/worker.ts",
+  "compatibility_date": "2026-08-19",
+  "keep_vars": true,
+  "vars": {
+    "DISCORD_ADMIN_USER_ID": "replace-with-your-user-id"
+  },
+  "routes": [
+    { "pattern": "auth.example.com", "custom_domain": true }
+  ],
+  "kv_namespaces": [
+    { "binding": "OPENAUTH_STORAGE", "id": "replace-with-your-kv-namespace-id" }
+  ]
+}
