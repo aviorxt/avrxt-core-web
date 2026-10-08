@@ -15,12 +15,15 @@ The repository contains neutral placeholder content only. Fork it, replace the i
 - [Authentication and admin setup](#authentication-and-admin-setup)
 - [Spotify setup](#spotify-setup)
 - [Email and newsletter setup](#email-and-newsletter-setup)
+- [Google APIs and Gmail automation](#google-apis-and-gmail-automation)
+- [Discord presence](#discord-presence)
 - [Cloudflare R2 setup](#cloudflare-r2-setup)
 - [Status and monitoring](#status-and-monitoring)
 - [Deployment](#deployment)
 - [Customization checklist](#customization-checklist)
 - [Security](#security)
 - [Troubleshooting](#troubleshooting)
+- [Provider documentation](#provider-documentation)
 
 ## Features
 
@@ -246,11 +249,14 @@ If you do not need browser-admin features, remove the admin/auth routes and mana
 
 ## Spotify setup
 
+> **Premium requirement:** Spotify currently requires the owner of a Development Mode Web API app to have an active Spotify Premium subscription. The integration stops working if that subscription lapses. Development Mode is also limited to allowlisted users, so review Spotify's current quota-mode rules before offering this feature to other people.
+
 1. Create an app in the Spotify Developer Dashboard.
-2. Add these exact redirect URIs:
+2. Select **Web API** and add every person who may authorize the app to its Development Mode allowlist.
+3. Add these exact redirect URIs:
    - Local: `http://127.0.0.1:3000/api/spotify/callback`
    - Production: `https://YOUR_DOMAIN/api/spotify/callback`
-3. Set:
+4. Set:
 
 ```dotenv
 SPOTIFY_CLIENT_ID=YOUR_CLIENT_ID
@@ -262,13 +268,49 @@ Use the production HTTPS callback in deployed environment variables. Spotify req
 
 After OpenAuth and Supabase are working, sign in as the configured admin, open `/me/admin`, and connect Spotify. Tokens are stored only in the private `spotify_tokens` table. The requested scopes support current playback, playback state, recent tracks, top items, liked-song totals, and private/collaborative playlists.
 
+### Realtime now-playing flow
+
+This project does not expose Spotify credentials to the browser. Its live path is:
+
+```text
+Spotify Web API
+  -> Supabase Edge Function (v2-now-playing)
+  -> spotify_status row + spotify_history cache
+  -> Supabase Realtime postgres_changes
+  -> /me and /muzix/chart
+```
+
+1. Apply the included Supabase migrations. They create the single-row `spotify_status` table, enable RLS, grant public read-only access, and add it to the `supabase_realtime` publication.
+2. Deploy `v2-now-playing` and set its `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` secrets as shown in the Supabase section.
+3. Set `SPOTIFY_NOW_PLAYING_UPSTREAM` in `cloudflare/edge-api/wrangler.jsonc` to the deployed function URL if you use the edge proxy.
+4. Deploy the edge worker and set its origin as `NEXT_PUBLIC_EDGE_BASE_URL`. Without that worker, the site can use its own `/api/spotify/now-playing` route.
+5. Connect Spotify from `/me/admin`, play a track, and open `/me`. The UI refreshes on focus, polls conservatively, subscribes to `spotify_status`, and predicts progress locally between updates.
+
+If live events do not arrive, confirm `spotify_status` is present in **Database → Publications → supabase_realtime**, the anonymous role can select that table, and the Edge Function can update it with the service-role key.
+
+### Optional unofficial alternative: SpotAPI
+
+[SpotAPI](https://github.com/Aran404/SpotAPI) is an independent Python wrapper around Spotify's public and private web APIs. Its project states that it can operate without Spotify Premium or an official API key. It is **not included, supported, or wired into this Next.js repository**, and it is not a drop-in replacement for the TypeScript Spotify modules.
+
+SpotAPI uses private endpoints and may require Spotify credentials, browser cookies, CAPTCHA-solving services, or session storage. That can create account-security, reliability, licensing, and Spotify Terms of Service risks. If you deliberately choose it:
+
+- run it as a separate private Python service;
+- never expose Spotify passwords, cookies, session data, or solver keys to the browser;
+- place a small authenticated adapter in front of it that returns only the now-playing fields this site needs;
+- replace the official upstream only after reviewing SpotAPI's GPL-3.0 license and legal notice;
+- expect private endpoints to change without notice, and provide a safe offline fallback.
+
+The official Spotify Web API remains the recommended integration.
+
 ## Email and newsletter setup
 
 ### Resend
 
-1. Verify a sending domain in Resend.
-2. Create an Audience and copy its ID.
-3. Configure:
+1. Create a Resend account and add a sending domain. A dedicated subdomain such as `updates.your-domain.com` is recommended so newsletter reputation is isolated from transactional mail.
+2. Add the DNS records Resend displays (normally SPF and DKIM) at your DNS provider, wait for **Verified**, and optionally configure DMARC and a custom Return-Path.
+3. Create an API key. Prefer a key restricted to sending from the verified domain, and copy it immediately because it is shown only once.
+4. Create or select the contact Audience used by this repository and copy its ID. Resend's newer Contacts model may present this through Contacts/Segments; `RESEND_AUDIENCE_ID` remains the identifier expected by the current code.
+5. Configure the production server environment:
 
 ```dotenv
 RESEND_API_KEY=re_...
@@ -278,7 +320,12 @@ RESEND_FROM_DOMAINS=your-domain.com
 NEWSLETTER_UNSUBSCRIBE_BASE_URL=https://unsub.your-domain.com
 ```
 
-The Subscribe pages add contacts to the configured audience. The broadcast editor provisions per-contact unsubscribe tokens before sending. See `NEWSLETTER_BROADCASTS.md` for the operational flow.
+6. Apply the newsletter migration and deploy the unsubscribe worker before sending a broadcast.
+7. Subscribe with a real address, confirm the contact appears in Resend, send a test message from `/me/admin/mail-broadcat`, and test both the branded and Resend-managed unsubscribe paths.
+
+The Subscribe pages add contacts to the configured audience. The admin broadcast editor supports drafts, test messages, immediate sends, scheduling, and per-contact unsubscribe links. Resend performs final sending, queueing, and suppression. See `NEWSLETTER_BROADCASTS.md` for the operational flow.
+
+Keep `RESEND_API_KEY`, `RESEND_AUDIENCE_ID`, and `SUPABASE_SERVICE_ROLE_KEY` server-only. Never prefix them with `NEXT_PUBLIC_`, place them in a client component, or commit them.
 
 ### Unsubscribe worker
 
@@ -293,23 +340,93 @@ npm run unsubscribe:deploy
 
 ### Contact form
 
-The included contact relay uses Gmail SMTP. Create a Google app password and set:
+The included contact relay uses Gmail SMTP through Nodemailer. It validates and rate-limits form submissions, sends mail to your own inbox, and uses the visitor's address only as `Reply-To`.
+
+1. Use a dedicated Google account or Workspace mailbox when possible.
+2. Enable 2-Step Verification on the account.
+3. Create a Google **App password** for Mail. Google only exposes this option for eligible accounts with 2-Step Verification enabled; some Workspace policies or Advanced Protection configurations disable it.
+4. Set:
 
 ```dotenv
 ADMIN_GMAIL_ID=you@gmail.com
 GMAIL_APP_PASSWORD=YOUR_APP_PASSWORD
 ```
 
-For another provider, replace the Nodemailer transport in `src/app/api/contact/route.ts`.
+5. Deploy, submit `/contact`, and verify the message arrives and replying targets the visitor.
+
+Do not use the normal Google account password. App passwords are secrets and must remain in the server environment. For another SMTP provider, replace the Nodemailer transport in `src/app/api/contact/route.ts`.
+
+## Google APIs and Gmail automation
+
+The repository has three Google-related features. They are independent and use different credentials:
+
+| Feature | Credential | Where it is used |
+| --- | --- | --- |
+| Google Search Console ownership | Verification token | `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION` in page metadata |
+| YouTube search in the profile admin | YouTube Data API v3 key | `YOUTUBE_API_KEY` on the server/API worker |
+| Contact-form delivery | Gmail App password | `ADMIN_GMAIL_ID` + `GMAIL_APP_PASSWORD` in the server route |
+
+### Search Console verification
+
+1. Add the production site as a Domain property (DNS verification) or URL-prefix property in Google Search Console.
+2. For HTML meta verification, copy only the token value into `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION`.
+3. Deploy and confirm the verification meta tag exists in the production page source.
+4. Submit `https://YOUR_DOMAIN/sitemap.xml` after verification.
+
+### YouTube Data API
+
+1. Create a project in Google Cloud Console.
+2. Enable **YouTube Data API v3**.
+3. Create an API key and restrict it to the YouTube Data API. When the request runs through the Next.js server, use server/IP restrictions supported by your deployment; do not expose the key in a `NEXT_PUBLIC_` variable.
+4. Set `YOUTUBE_API_KEY` in Vercel. If the optional API gateway handles `/v1/youtube/search`, add the same value as a Worker secret:
+
+```bash
+npx wrangler secret put YOUTUBE_API_KEY --config api-worker/wrangler.jsonc
+```
+
+5. Test the media search from `/me/admin`. Google API quotas apply, so keep the existing result limit and server-side authorization.
+
+### Gmail API OAuth alternative
+
+The current contact automation uses SMTP plus an App password; it does **not** use the Gmail REST API or the installed `googleapis` package. If your organization forbids App passwords, implement Google's OAuth 2.0 web-server flow, request only the narrow Gmail sending scope, store the refresh token encrypted on the server, and replace the Nodemailer Gmail-password transport. Google may require OAuth consent-screen configuration and verification for public apps or sensitive/restricted scopes.
+
+For a simple personal deployment, the existing App-password route is the smaller setup. For multi-user or Workspace automation, use OAuth and never store a user's normal Google password.
+
+## Discord presence
+
+Discord serves two separate purposes in this project:
+
+- **Admin authentication:** OpenAuth signs in with Discord, then the auth worker verifies the configured owner ID or server role.
+- **Public presence:** `/me` reads status, activities, Spotify activity, badges, and server tag information through the public [Lanyard](https://github.com/Phineas/lanyard) service (or your self-hosted Lanyard-compatible endpoint).
+
+### Public presence setup
+
+1. Join the Lanyard Discord server so Lanyard can monitor your account, or self-host Lanyard with a Discord bot and Redis.
+2. In Discord, enable **Developer Mode**, right-click your account, and copy your numeric user ID.
+3. Sign in to `/me/admin`, set Presence to **Auto**, paste the user ID, and save. You can independently enable the server tag and automatic/manual badges.
+4. Deploy `cloudflare/edge-api` and set `NEXT_PUBLIC_EDGE_BASE_URL` if you want the site to proxy Lanyard instead of calling it through the optional gateway path.
+5. Test the upstream directly at `https://api.lanyard.rest/v1/users/YOUR_DISCORD_ID`; it should return `success: true` before the site can display presence.
+
+The UI refreshes presence every 60 seconds. A user must be monitored by Lanyard, Discord activity sharing must be available, and invisible/offline status will appear offline. If self-hosting, enable the Discord bot's **Presence Intent** and **Server Members Intent**, keep the bot token private, and use HTTPS in front of the service.
+
+### Discord admin authentication setup
+
+Create a Discord application, add an OAuth redirect for the deployed OpenAuth issuer, place the bot in the configured guild, and configure `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_TOKEN`, `DISCORD_GUILD_ID`, `DISCORD_ROLE_ID`, and `DISCORD_ADMIN_USER_ID` as Worker secrets/variables. The bot needs permission to read the target guild member and their roles; it does not need administrator permission.
 
 ## Cloudflare R2 setup
 
 R2 is optional and supports profile/gallery uploads from the admin interface.
 
-1. Create an R2 bucket and an API token with object read/write permissions for that bucket.
-2. Attach a public custom domain or approved public delivery URL.
-3. Configure the endpoint, credentials, bucket, and public media domains in `.env.local`.
-4. Update and apply `cloudflare/r2-cors.json` to allow only your site origins.
+1. Create an R2 bucket in the Cloudflare dashboard or with `npx wrangler r2 bucket create YOUR_BUCKET`.
+2. Create an R2 API token scoped to object read/write for only that bucket. Copy the access-key ID, secret access key, account ID, and S3 endpoint.
+3. Attach a public custom domain such as `cdn.your-domain.com`. A custom domain is preferable to an `r2.dev` URL for production caching and access controls.
+4. Configure the endpoint, credentials, bucket, and public media domains in `.env.local` and in the deployment's server environment.
+5. Edit `cloudflare/r2-cors.json`, replace every example origin, and apply it:
+
+```bash
+npx wrangler r2 bucket cors set YOUR_BUCKET --file cloudflare/r2-cors.json
+npx wrangler r2 bucket cors list YOUR_BUCKET
+```
 
 ```dotenv
 R2_ENDPOINT=https://YOUR_ACCOUNT_ID.r2.cloudflarestorage.com
@@ -322,6 +439,34 @@ NEXT_PUBLIC_R2_VIDEO_DOMAIN=https://cdn.your-domain.com
 ```
 
 See `CLOUDFLARE_R2.md` for the upload path and CORS details.
+
+### Cloudflare Workers
+
+This repository contains independent Worker deployments:
+
+| Worker | Config | Purpose |
+| --- | --- | --- |
+| OpenAuth issuer | `wrangler.jsonc` | Discord/GitHub admin sign-in and role authorization |
+| API gateway | `api-worker/wrangler.jsonc` | Site proxy, YouTube search, Discord/edge proxy, Workers AI mail drafts |
+| Edge API | `cloudflare/edge-api/wrangler.jsonc` | Lanyard presence, weather proxy, Spotify now-playing upstream |
+| Unsubscribe service | `unsubscribe-worker/wrangler.jsonc` | Branded, rate-limited newsletter opt-out |
+
+For each Worker:
+
+1. Run `npx wrangler login` and confirm the correct Cloudflare account.
+2. Replace worker names, `example.com` routes, allowed origins, and every `replace-with-*` identifier.
+3. Create the required KV namespace, then replace its binding ID and assign valid unique namespace IDs to the rate-limit bindings.
+4. Store credentials with `npx wrangler secret put`; never place secrets in `vars` or commit `.dev.vars`.
+5. Deploy the relevant config and verify its custom domain over HTTPS.
+
+```bash
+npm run auth:deploy
+npm run api:deploy
+npx wrangler deploy --config cloudflare/edge-api/wrangler.jsonc
+npm run unsubscribe:deploy
+```
+
+Set `SITE_ORIGIN`, `EDGE_ORIGIN`, and every CORS allowlist to exact HTTPS production origins. Keep local origins only in development. The Workers are optional; deploy only those used by your chosen features.
 
 ## Status and monitoring
 
@@ -431,6 +576,15 @@ Verify the Resend audience, sending domain, allowed sender domains, unsubscribe 
 ### CSP blocks a trusted provider
 
 Add only the provider's documented origin to the narrowest relevant directive in `next.config.ts`. Do not add broad wildcards or untrusted sources.
+
+## Provider documentation
+
+- [Supabase CLI workflow](https://supabase.com/docs/guides/local-development/cli-workflows) and [Edge Function deployment](https://supabase.com/docs/guides/functions/deploy)
+- [Resend verified domains](https://resend.com/docs/dashboard/domains/introduction) and [Contacts](https://resend.com/docs/dashboard/contacts/introduction)
+- [Cloudflare Workers configuration](https://developers.cloudflare.com/workers/wrangler/configuration/), [R2 CORS](https://developers.cloudflare.com/r2/buckets/cors/), and [R2 Wrangler commands](https://developers.cloudflare.com/workers/wrangler/commands/r2/)
+- [Google OAuth web-server flow](https://developers.google.com/workspace/gmail/api/auth/web-server), [Gmail sending](https://developers.google.com/workspace/gmail/api/guides/sending), and [YouTube Data API](https://developers.google.com/youtube/v3)
+- [Spotify redirect URIs](https://developer.spotify.com/documentation/web-api/concepts/redirect_uri), [quota modes](https://developer.spotify.com/documentation/web-api/concepts/quota-modes), and [currently playing endpoint](https://developer.spotify.com/documentation/web-api/reference/get-the-users-currently-playing-track)
+- [Lanyard presence API](https://github.com/Phineas/lanyard) and the optional, unofficial [SpotAPI project](https://github.com/Aran404/SpotAPI)
 
 ## License
 

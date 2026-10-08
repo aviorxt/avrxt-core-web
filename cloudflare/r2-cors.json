@@ -2,7 +2,7 @@
   {
     "AllowedOrigins": [
       "https://example.com",
-      "https://example.com",
+      "https://www.example.com",
       "http://localhost:3000"
     ],
     "AllowedMethods": [

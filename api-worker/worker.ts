@@ -9,7 +9,7 @@ interface Env {
 
 const ALLOWED_ORIGINS = new Set([
   'https://example.com',
-  'https://example.com',
+  'https://www.example.com',
   'http://localhost:3000',
 ]);
 
